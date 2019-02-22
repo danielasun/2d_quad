@@ -14,10 +14,6 @@ import scipy.linalg
 import numpy as np
 import scipy.linalg
 
-def lp(expr, **kwargs):
-    print(sp.latex(sp.simplify(expr), symbol_names=symbol_names,**kwargs))
-# print(sp.latex(sp.simplify(xdot),  symbol_names=symbol_names, mode='equation'))
-
 def lqr(A, B, Q, R):
     """Solve the continuous time lqr controller.
 
@@ -38,7 +34,6 @@ def lqr(A, B, Q, R):
     eigVals, eigVecs = scipy.linalg.eig(A - B * K)
 
     return K, X, eigVals
-
 
 def dlqr(A, B, Q, R):
     """Solve the discrete time lqr controller.
@@ -61,12 +56,25 @@ def dlqr(A, B, Q, R):
 
     return K, X, eigVals
 
+def round_expr(expr, num_digits):
+    return expr.xreplace({n : round(n, num_digits) for n in expr.atoms(sp.Number)})
+
+def lp(expr, prec=None, **kwargs):
+    if prec is None:
+        print(sp.latex(sp.simplify(expr), symbol_names=symbol_names, **kwargs))
+def lpr(expr, prec, **kwargs):
+    # latex print with rounding
+    print(sp.latex(sp.simplify(round_expr(expr,prec)), symbol_names=symbol_names, **kwargs))
+
+# print(sp.latex(sp.simplify(xdot),  symbol_names=symbol_names, mode='equation'))
+####################
+# Defining symbols #
+####################
 
 ox, oz, ot, m, r, F1, F2, g = symbols('ox, oz, ot, m, r, F1, F2, g')
 kx, kz, kt, kxd, kzd, ktd= symbols('kx, kz, kt, kxd, kzd, ktd')
 x, z, th, xd, zd, thd = symbols('x z th xd zd thd')
 
-# subs_dict = {ox : .01, oz : .01, ot : .0001, r : .127, m : .1, kt : .0001, kz : .0005, kx: .000001}
 symbol_names = {ox:'\sigma_x',
                 oz:'\sigma_z',
                 ot:'\sigma_\\theta',
@@ -78,10 +86,7 @@ for k, ending in zip([kx,kz, kt, kxd, kzd, ktd,], ['x','z', 't','\dot{x}','\dot{
 M = np.block([[np.zeros((3,3)), np.eye(3)],
               [np.zeros((3,3)), -np.diag([ox, oz, ot])]])
 
-
-
-Fmin = np.r_[-100,-100]
-Fmax = np.r_[100,100]
+U = sp.Matrix([F1,F2]).T
 
 def B(X):
     theta = X[2]
@@ -134,47 +139,80 @@ def u(X):
     return 1/2*m*g/sp.cos(X[2])*sp.Matrix([1,1]) - K*X
 
 u_star = 1/2*m*g/sp.cos(X[2])*sp.Matrix([1,1])
-xdot = M@X + B(X)@u_star + G
+F = sp.Matrix([F1,F2]).T
+xdot = M@X + B(X)@(u_star + F.T) + G
+
+#########################
+# SYMBOLIC CALCULATIONS #
+#########################
 
 # pprint(M)
 # pprint(B(X))
 # pprint(u(X))
 lp(B(X)@(u_star + K@X) + G)
-# pprint(sp.simplify())
+lp(xdot)
+XU = sp.Matrix([x, z, th, xd, zd, thd, F1,F2])
 
+Df_wrtX = xdot.jacobian(X)
+Df_wrtU = xdot.jacobian(U)
+# lp(Df_wrtX)
+# lp(Df_wrtU)
+Fmin = np.r_[-100,-100]
+Fmax = np.r_[100,100]
 
+##########################
+# Numerical Calculations #
+##########################
 
-
-
-Df = xdot.jacobian(X)
 subs_dict = {x:0, z:0, th:0, xd:0, zd:0, thd:0,
-             ox : .00001, oz : .00001, ot : .000001,
+             ox : 1e-6, oz : 1e-6, ot : 1e-6,
              r : .127, m : .1,
-             kt : .01, kz : .00005, kx: 0.00000000001,
-             g:9.8}
-Df.evalf(subs=subs_dict)
+             g:9.8, F1:0, F2:0}
 
-A = np.array(Df.evalf(subs=subs_dict)).astype(np.float64)
-A[4,2] = 0
+A_ = np.array(Df_wrtX.subs(subs_dict)).astype(np.float64)
+B_ = np.array(Df_wrtU.subs(subs_dict)).astype(np.float64)
+Q = np.eye(6)
+K,P,E = lqr(A_,B_,Q=Q,R=np.eye(2))
+# lp(round_expr(sp.Matrix(K), 4))
+w, vr = scipy.linalg.eig(A_, right=True)
+Acl = A_-B_@K
+P = scipy.linalg.solve_lyapunov(Acl, -Q) # negative because of how Q is defined
+# lp(round_expr(sp.Matrix(P), 4))
+P_eig, vr = scipy.linalg.eig(P, right=True)
+Q_eig, vr = scipy.linalg.eig(Q, right=True)
+# lpr(sp.Matrix(w), 5)
 
 
-w, vr = scipy.linalg.eig(A, right=True)
+###################################
+# Estimating domain of attraction #
+###################################
+max_eigP = max(P_eig)
+min_eigQ = min(Q_eig)
+print("max_ eig P = {}".format(max_eigP) + "min_eigQ = {}".format(min_eigQ))
 
-P = scipy.linalg.solve_lyapunov(A, np.eye(6))
 
-w, vr = scipy.linalg.eig(P, right=True)
+# deriving G(x)
+G_func = Df_wrtX - Df_wrtU@K
 
+# factoring out X
+for i in range(len(X)):
+    G_func[:,i] = G_func[:,i]/X[i]
 
-B_ = np.array(B([0,0,0,0,0,0]).evalf(subs=subs_dict)).astype(np.float64)
-K, S, E = lqr(A,B_, np.eye(6), np.eye(2))
+# substituting in dependence on F1, F2
+subs_dict = {ox : 1e-6, oz : 1e-6, ot : 1e-6, r : .127, m : .1, g:9.8, F1:(K@X)[0,:], F2:(K@X)[1,:]}
+G_func = G_func.subs(subs_dict)
+G_func -= Acl # subtracting the closed loop function at the origin
+total = 0
+# G_func.simplify()
+# computing matrix norm expression
+for i in range(6):
+    for j in range(6):
+        print(type(G_func[i,j]))
+        total += G_func[i,j]*G_func[i,j]
+Gnorm = sp.sqrt(total)
 
-### print area
-lp(M@X + B(X)@(u_star + K*X) + G, mode='equation')
-lp(w)
-# lp(vr)
-lp(np.round(P,decimals=3))
-# lp(K)
-lp(B(X)@(u_star + K@X))
-# print(np.real(w))
-# print(scipy.linalg.eig(A-B_@K))
+##################################
+# LaSalle's Invariance Principle #
+##################################
 
+vdot = 2*X.T@P@(M@X + B(X)@(u_star + -K@X) + G)
