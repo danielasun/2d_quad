@@ -109,6 +109,8 @@ J_ = J.subs(subs_dict)
 grav_ = grav.subs(subs_dict)
 m_ = m.subs(subs_dict)
 
+
+# controller
 def ctrl_fn(X, Xdes):
     """
     State dependent control
@@ -116,9 +118,7 @@ def ctrl_fn(X, Xdes):
     :param Xdes: # 6 vec desired state value for X
     :return: 2x1 control output vector [T,M]
     """
-
     # x-z regulation:
-
     # x controller
     wn_x = 1
     xi_x = 1 # critically damped
@@ -148,7 +148,7 @@ def ctrl_fn(X, Xdes):
 
 
 # simulate
-def simulate(ic, ctrl_fn, dt, tfinal):
+def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     """
         simulates quadrotor output
         :param ic: initial condition, 6x1 vector
@@ -170,7 +170,7 @@ def simulate(ic, ctrl_fn, dt, tfinal):
     state = ic
     for i in range(len(times)):
         # calculate control
-        u = ctrl_fn(state, Xdes=np.r_[0, 0, 0, 0, 0, 0])
+        u = ctrl_fn(state, Xdes=xtraj[i,:])
 
         # don't bother with clipping the input for now.
 
@@ -184,8 +184,17 @@ def simulate(ic, ctrl_fn, dt, tfinal):
 # make the plot
 ic = np.r_[1, 1, -.5, 0, 0, 0]
 dt = .01
-tfinal =8
-xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=tfinal)
+tfinal = 10
+times = np.arange(0, tfinal, dt)
+xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
+                   np.sin(2*np.pi*times/tfinal),
+                   np.zeros_like(times),
+                   -np.sin(2*np.pi*times/tfinal),
+                   np.cos(2 * np.pi * times / tfinal),
+                   np.zeros_like(times)]).T
+
+
+xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=tfinal, xtraj=xtraj)
 
 
 fig = plt.figure()
@@ -227,7 +236,7 @@ def animate(i):
     return line, time_text
 
 ani = animation.FuncAnimation(fig, animate, np.arange(len(times)),
-                              interval=2, blit=True, init_func=init)
+                              interval=1, blit=True, init_func=init)
 
 # ani.save('quadrotor.mp4', fps=15)
 
