@@ -62,7 +62,7 @@ def lpr(expr, prec, **kwargs):
 
 
 # write down dynamics
-ox, oz, ot, m, r, F1, F2, g, v1, v2 = symbols('ox, oz, ot, m, r, F1, F2, g, v1, v2')
+ox, oz, ot, m, r, F1, F2, grav, v1, v2 = symbols('ox, oz, ot, m, r, F1, F2, grav, v1, v2')
 kx, kz, kt, kxd, kzd, ktd = symbols('kx, kz, kt, kxd, kzd, ktd')
 x, z, th, xd, zd, thd = symbols('x z th xd zd thd')
 symbols('x z th xd zd thd')
@@ -76,7 +76,7 @@ for k, ending in zip([kx, kz, kt, kxd, kzd, ktd, ], ['x', 'z', 't', '\dot{x}', '
     symbol_names[k] = "k_{" + ending + "}"
 
 # Define dynamical system
-subs_dict = {ox: 1e-6, oz: 1e-6, ot: 1e-6, r: .127, m: .1, g: 9.8}
+subs_dict = {ox: 1e-6, oz: 1e-6, ot: 1e-6, r: .127, m: .1, grav: 9.8}
 
 # vectors of variables
 q = sp.Matrix([x, z, th])
@@ -90,7 +90,7 @@ D = sp.Matrix(np.diag([m, m, J]))
 B = sp.Matrix([[-sp.sin(th), 0],
                [sp.cos(th), 0],
                [0, 1]])
-H = sp.Matrix([0, m * g, 0])
+H = sp.Matrix([0, m * grav, 0])
 
 Dinv = sp.Matrix(np.diag([1 / m, 1 / m, 1 / J]))
 qdd = -Dinv @ H + Dinv @ B @ u
@@ -99,19 +99,52 @@ f = sp.Matrix([qd, -Dinv @ H]).subs(subs_dict)
 g = sp.Matrix([[0, 0], [0, 0], [0, 0], Dinv @ B])
 
 # create change equations
-change_eqs = sp.lambdify([X, u], (f + g @ u).subs(subs_dict))
+change_eqs = sp.lambdify((X, u), (f + g @ u).subs(subs_dict))
 
 
 fm_to_u1u2 = sp.Matrix([[1/2, 1/(2*r)],
                         [1/2, -1/(2*r)]]).subs(subs_dict)
 
+J_ = J.subs(subs_dict)
+grav_ = grav.subs(subs_dict)
+m_ = m.subs(subs_dict)
+
 def ctrl_fn(X, Xdes):
     """
     State dependent control
-    :param X:
-    :return: 2x1 control output vector
+    :param X: 6 vec current states [x z theta xd zd thetad]
+    :param Xdes: # 6 vec desired state value for X
+    :return: 2x1 control output vector [T,M]
     """
-    return np.r_[5, .1]
+
+    # x-z regulation:
+
+    # x controller
+    wn_x = 1
+    xi_x = 1 # critically damped
+    xdd_ref = 0 # for now, no feedforward terms!
+    v_theta = xdd_ref - 2*xi_x*wn_x*(X[3]-Xdes[3]) - wn_x**2*(X[0]-Xdes[0])
+    th_ref = -1/grav_*v_theta
+
+    # z controller
+    wn_z = 1
+    xi_z = 1
+    zdd_ref = 0
+    v_z = zdd_ref - 2*xi_z*wn_z*(X[4]-Xdes[4]) - wn_z**2*(X[1]-Xdes[1])
+    dF = 1/m_*v_z
+
+
+    # angle controller (slave to x)
+    wn_theta = 20
+    xi_theta = 1
+    th = X[2]
+    thd = X[5]
+    thdd = 0 # for now, no feedforward terms!
+    thd_ref = 0
+    M = J_*(thdd - wn_theta**2*(th-th_ref) - 2*wn_theta*xi_theta*(thd-thd_ref))
+    T = dF + m_*grav_
+
+    return np.array([T, M]).astype(float)
 
 
 # simulate
@@ -137,19 +170,22 @@ def simulate(ic, ctrl_fn, dt, tfinal):
     state = ic
     for i in range(len(times)):
         # calculate control
-        u = ctrl_fn(X, Xdes=np.r_[0, 0, 0, 0, 0, 0])
+        u = ctrl_fn(state, Xdes=np.r_[0, 0, 0, 0, 0, 0])
 
         # don't bother with clipping the input for now.
 
         xlist[i, :] = state
         ulist[i, :] = u
-        state = change_eqs(state, u.T)[:, 0] * dt + state
+        # print(u, state)
+        state = (change_eqs(state, u.T)[:, 0] * dt + state).astype(float)
+
     return xlist, ulist, times
 
 # make the plot
-ic = np.r_[1, 1, -.5, 1, 1, .1]
+ic = np.r_[1, 1, -.5, 0, 0, 0]
 dt = .01
-xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=1)
+tfinal =8
+xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=tfinal)
 
 
 fig = plt.figure()
@@ -160,7 +196,7 @@ lim = lim*1.1 # make 10% larger so the scaling is nice
 ax = fig.add_subplot(111, autoscale_on=False, xlim=(-lim, lim), ylim=(-lim, lim))
 ax.grid()
 
-line, = ax.plot([], [], 'o-', lw=2)
+line, = ax.plot([], [], 'o-', lw=10)
 time_template = 'time = %.3fs'
 time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
 
@@ -191,42 +227,42 @@ def animate(i):
     return line, time_text
 
 ani = animation.FuncAnimation(fig, animate, np.arange(len(times)),
-                              interval=25, blit=False, init_func=init)
+                              interval=2, blit=True, init_func=init)
 
 # ani.save('quadrotor.mp4', fps=15)
-plt.show()
 
 #### plotting graphs ####
 
-# plt.figure(1)
-# plt.subplot(411)
-# for i, l in zip([0,1], ['x','z']):
-#     plt.plot(times, xlist[:,i], label=l)
-# legend = plt.legend(loc='lower right', shadow=True, fontsize='small')
-# plt.xlabel('time')
-# plt.title('position vs. time')
-# plt.subplot(412)
-# plt.plot(times, xlist[:,2], label='theta')
-# plt.xlabel('time')
-# plt.title('theta vs. time')
-# plt.subplot(413)
-# for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
-#     plt.plot(times, xlist[:,i], label=l)
-# plt.xlabel('time')
-# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
-# plt.subplot(414)
-# for i, l in zip(range(2), ['F1','F2']):
-#     plt.plot(times, ulist[:,i], label=l)
-# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
-#
-# show_traj = True
-# if show_traj:
-#     plt.figure(2)
-#     plt.plot(xlist[:,0], xlist[:,1], 'b.')
-#     plt.xlabel('x')
-#     plt.ylabel('z')
+plt.figure()
+plt.subplot(411)
+for i, l in zip([0,1], ['x','z']):
+    plt.plot(times, xlist[:,i], label=l)
+legend = plt.legend(loc='lower right', shadow=True, fontsize='small')
+plt.xlabel('time')
+plt.title('position vs. time')
+plt.subplot(412)
+plt.plot(times, xlist[:,2], label='theta')
+plt.xlabel('time')
+plt.title('theta vs. time')
+plt.subplot(413)
+for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
+    plt.plot(times, xlist[:,i], label=l)
+plt.xlabel('time')
+legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
+plt.subplot(414)
+for i, l in zip(range(2), ['F1','F2']):
+    plt.plot(times, ulist[:,i], label=l)
+legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
 
-# plt.show()
+show_traj = True
+show_traj = False
+if show_traj:
+    plt.figure()
+    plt.plot(xlist[:,0], xlist[:,1], 'b.')
+    plt.xlabel('x')
+    plt.ylabel('z')
+
+plt.show()
 
 
 
