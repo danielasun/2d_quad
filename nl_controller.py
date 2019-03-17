@@ -111,7 +111,7 @@ def ctrl_fn(X, Xdes):
     :param X:
     :return: 2x1 control output vector
     """
-    return np.r_[0, 1]
+    return np.r_[5, .1]
 
 
 # simulate
@@ -147,42 +147,17 @@ def simulate(ic, ctrl_fn, dt, tfinal):
     return xlist, ulist, times
 
 # make the plot
-ic = np.r_[.3, 0, -.5, .1, .1, .1]
+ic = np.r_[1, 1, -.5, 1, 1, .1]
 dt = .01
 xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=1)
 
-# plt.figure(1)
-# plt.subplot(411)
-# for i, l in zip([0,1], ['x','z']):
-#     plt.plot(times, xlist[:,i], label=l)
-# legend = plt.legend(loc='lower right', shadow=True, fontsize='small')
-# plt.xlabel('time')
-# plt.title('position vs. time')
-# plt.subplot(412)
-# plt.plot(times, xlist[:,2], label='theta')
-# plt.xlabel('time')
-# plt.title('theta vs. time')
-# plt.subplot(413)
-# for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
-#     plt.plot(times, xlist[:,i], label=l)
-# plt.xlabel('time')
-# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
-# plt.subplot(414)
-# for i, l in zip(range(2), ['F1','F2']):
-#     plt.plot(times, ulist[:,i], label=l)
-# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
-#
-# show_traj = True
-# if show_traj:
-#     plt.figure(2)
-#     plt.plot(xlist[:,0], xlist[:,1], 'b.')
-#     plt.xlabel('x')
-#     plt.ylabel('z')
-
-# plt.show()
 
 fig = plt.figure()
-ax = fig.add_subplot(111, autoscale_on=False, xlim=(-2, 2), ylim=(-2, 2))
+xlim = np.max([abs(np.min(xlist[:,0])), np.max(xlist[:,0])])
+ylim = np.max([abs(np.min(xlist[:,1])), np.max(xlist[:,1])])
+lim = max([xlim, ylim])
+lim = lim*1.1 # make 10% larger so the scaling is nice
+ax = fig.add_subplot(111, autoscale_on=False, xlim=(-lim, lim), ylim=(-lim, lim))
 ax.grid()
 
 line, = ax.plot([], [], 'o-', lw=2)
@@ -216,14 +191,47 @@ def animate(i):
     return line, time_text
 
 ani = animation.FuncAnimation(fig, animate, np.arange(len(times)),
-                              interval=10, blit=False, init_func=init)
+                              interval=25, blit=False, init_func=init)
 
-ani.save('quadrotor.mp4', fps=15)
+# ani.save('quadrotor.mp4', fps=15)
 plt.show()
+
+#### plotting graphs ####
+
+# plt.figure(1)
+# plt.subplot(411)
+# for i, l in zip([0,1], ['x','z']):
+#     plt.plot(times, xlist[:,i], label=l)
+# legend = plt.legend(loc='lower right', shadow=True, fontsize='small')
+# plt.xlabel('time')
+# plt.title('position vs. time')
+# plt.subplot(412)
+# plt.plot(times, xlist[:,2], label='theta')
+# plt.xlabel('time')
+# plt.title('theta vs. time')
+# plt.subplot(413)
+# for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
+#     plt.plot(times, xlist[:,i], label=l)
+# plt.xlabel('time')
+# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
+# plt.subplot(414)
+# for i, l in zip(range(2), ['F1','F2']):
+#     plt.plot(times, ulist[:,i], label=l)
+# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
+#
+# show_traj = True
+# if show_traj:
+#     plt.figure(2)
+#     plt.plot(xlist[:,0], xlist[:,1], 'b.')
+#     plt.xlabel('x')
+#     plt.ylabel('z')
+
+# plt.show()
+
+
 
 
 ###### not using right now
-
 # # augmented system: X_d = f_(x,u) + g_@ud
 # show stabilization to the origin
 
