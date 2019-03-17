@@ -78,8 +78,13 @@ subs_dict = {ox : 1e-6, oz : 1e-6, ot : 1e-6, r : .127, m : .1, g:9.8}
 
 Dinv = sp.Matrix(np.diag([1/m, 1/m, 3/(m*r**2)]))
 qdd = -Dinv@H + Dinv@B@u
-S = np.array([[0,1,0],[0,0,1]])
-ic = np.r_[1, .2, -.1, .1, 5, 0]
+S = np.array([[0,1,0],
+              [0,0,1]])
+C = np.array([[0,1,0,0,0,0],
+              [0,0,1,0,0,0],
+              [0,0,0,0,1,0],
+              [0,0,0,0,0,1]])
+
 
 f = sp.Matrix([qd,-Dinv@H]).subs(subs_dict)
 g_ = sp.Matrix([[0,0],[0,0],[0,0],Dinv@B])
@@ -91,34 +96,30 @@ g_ = g_.subs(subs_dict)
 # control design
 A_ = np.zeros([4,4]); A_[0,1] = 1; A_[2,3] = 1
 B_ = np.zeros([4,2]); B_[1,0] = 1; B_[3,1] = 1
-Q_ = np.diag([1e3,1,1e6,1])
-R_ = np.eye(2)*1e1
+Q_ = np.diag([1,1,1,1])
+R_ = np.eye(2)
 K_, P, eigvals = lqr(A_,B_,Q_,R_)
 Acl = A_-B_@K_
 print(np.linalg.eigvals(Acl))
 
-
-K = sp.zeros(2,6)
-K[:,1] = K_[:,0] #z
-K[:,2] = K_[:,2] #th
-K[:,4] = K_[:,1] #zdot
-K[:,5] = K_[:,3] #thdot
-K = np.array(K).astype(np.float64)
-xprime = sp.lambdify((X, v), f+g_@u_)
+K = np.array(K_).astype(np.float64)
+xprime = f+g_@u_
+xprime_fn = sp.lambdify([X, v], f+g_@u_)
 
 # # euler's method
 dt = .001
-tfinal = 5
+tfinal = 1
 
 times = np.arange(0,tfinal, dt)
-Fmin = np.r_[0,0]
+Fmin = np.r_[-10,-10]
 Fmax = np.r_[10,10]
 
 # simulate
 simulate = True
 # simulate = False
+ic = np.r_[.3, 0, -.5, .1, .1, .1]
 if simulate:
-    x = ic
+    state = ic
     xdes = np.r_[0,0,0,0,0,0]
     xlist = np.zeros((math.floor(tfinal/dt), 6))
     ulist = np.zeros((math.floor(tfinal/dt), 2))
@@ -127,12 +128,11 @@ if simulate:
     show_traj = 0
 
     for i in range(len(times)):
-
-        u = np.clip(-K@x, Fmin, Fmax)
-        xlist[i,:] = x
+        nu = C@state
+        u = np.clip(-K@nu, Fmin, Fmax)
+        xlist[i,:] = state
         ulist[i,:] = u
-        # print(u)
-        x = xprime(x,u)[:,0]*dt + x
+        state = xprime_fn(state,u.T)[:,0]*dt + state
 
     # make the plot
     plt.figure(1)
