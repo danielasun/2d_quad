@@ -4,6 +4,8 @@
 import numpy as np
 from numpy import pi, sin, cos
 import math
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import sympy as sp
 from sympy.interactive.printing import init_printing
@@ -13,8 +15,9 @@ from sympy.matrices import Matrix, eye, zeros, ones, diag, GramSchmidt
 from sympy import symbols, pprint, lambdify
 import scipy.linalg
 import numpy as np
-import scipy.linalg
-
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 def lqr(A, B, Q, R):
     """
@@ -99,13 +102,16 @@ g = sp.Matrix([[0, 0], [0, 0], [0, 0], Dinv @ B])
 change_eqs = sp.lambdify([X, u], (f + g @ u).subs(subs_dict))
 
 
+fm_to_u1u2 = sp.Matrix([[1/2, 1/(2*r)],
+                        [1/2, -1/(2*r)]]).subs(subs_dict)
+
 def ctrl_fn(X, Xdes):
     """
     State dependent control
     :param X:
     :return: 2x1 control output vector
     """
-    return np.r_[0, 0]
+    return np.r_[0, 1]
 
 
 # simulate
@@ -131,48 +137,90 @@ def simulate(ic, ctrl_fn, dt, tfinal):
     state = ic
     for i in range(len(times)):
         # calculate control
-        udes = ctrl_fn(X, Xdes=np.r_[0, 0, 0, 0, 0, 0])
-        u = np.clip(udes, Fmin, Fmax)
+        u = ctrl_fn(X, Xdes=np.r_[0, 0, 0, 0, 0, 0])
+
+        # don't bother with clipping the input for now.
+
         xlist[i, :] = state
         ulist[i, :] = u
         state = change_eqs(state, u.T)[:, 0] * dt + state
     return xlist, ulist, times
 
-
-#
 # make the plot
 ic = np.r_[.3, 0, -.5, .1, .1, .1]
-xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=.001, tfinal=1)
+dt = .01
+xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=1)
 
-plt.figure(1)
-plt.subplot(411)
-for i, l in zip([0,1], ['x','z']):
-    plt.plot(times, xlist[:,i], label=l)
-legend = plt.legend(loc='lower right', shadow=True, fontsize='small')
-plt.xlabel('time')
-plt.title('position vs. time')
-plt.subplot(412)
-plt.plot(times, xlist[:,2], label='theta')
-plt.xlabel('time')
-plt.title('theta vs. time')
-plt.subplot(413)
-for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
-    plt.plot(times, xlist[:,i], label=l)
-plt.xlabel('time')
-legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
-plt.subplot(414)
-for i, l in zip(range(2), ['F1','F2']):
-    plt.plot(times, ulist[:,i], label=l)
-legend=plt.legend(loc='upper right', shadow=True, fontsize='small')
-
-show_traj = True
-if show_traj:
-    plt.figure(2)
-    plt.plot(xlist[:,0], xlist[:,1], 'b.')
-    plt.xlabel('x')
-    plt.ylabel('z')
+# plt.figure(1)
+# plt.subplot(411)
+# for i, l in zip([0,1], ['x','z']):
+#     plt.plot(times, xlist[:,i], label=l)
+# legend = plt.legend(loc='lower right', shadow=True, fontsize='small')
+# plt.xlabel('time')
+# plt.title('position vs. time')
+# plt.subplot(412)
+# plt.plot(times, xlist[:,2], label='theta')
+# plt.xlabel('time')
+# plt.title('theta vs. time')
+# plt.subplot(413)
+# for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
+#     plt.plot(times, xlist[:,i], label=l)
+# plt.xlabel('time')
+# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
+# plt.subplot(414)
+# for i, l in zip(range(2), ['F1','F2']):
+#     plt.plot(times, ulist[:,i], label=l)
+# legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
 #
+# show_traj = True
+# if show_traj:
+#     plt.figure(2)
+#     plt.plot(xlist[:,0], xlist[:,1], 'b.')
+#     plt.xlabel('x')
+#     plt.ylabel('z')
+
+# plt.show()
+
+fig = plt.figure()
+ax = fig.add_subplot(111, autoscale_on=False, xlim=(-2, 2), ylim=(-2, 2))
+ax.grid()
+
+line, = ax.plot([], [], 'o-', lw=2)
+time_template = 'time = %.3fs'
+time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
+
+
+def init():
+    line.set_data([], [])
+    time_text.set_text('')
+    return line, time_text
+
+
+def animate(i):
+
+    # calculate position of the engines
+    center = np.r_[xlist[i,0], xlist[i,1]]
+    th = xlist[i,2]
+    R = np.array([[np.cos(th), -np.sin(th)],
+                   [np.sin(th), np.cos(th)]])
+    r.subs(subs_dict)
+    lm_pos = center + (R @ np.r_[.127, 0])  # left motor position
+    rm_pos = center - (R @ np.r_[.127, 0])  # right motor position
+
+    thisx = [lm_pos[0], rm_pos[0]]
+    thisy = [lm_pos[1], rm_pos[1]]
+
+    # set line data
+    line.set_data(thisx, thisy)
+    time_text.set_text(time_template % (i*dt))
+    return line, time_text
+
+ani = animation.FuncAnimation(fig, animate, np.arange(len(times)),
+                              interval=10, blit=False, init_func=init)
+
+ani.save('quadrotor.mp4', fps=15)
 plt.show()
+
 
 ###### not using right now
 
