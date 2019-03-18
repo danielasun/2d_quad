@@ -29,7 +29,7 @@ plt.title('atan')
 plt.show()
 
 plt.figure()
-s = np.linspace(-5,5, 100)
+s = np.linspace(-10,10, 100)
 plt.plot(s,1 + 1/(1+np.exp(-s)))
 plt.xlabel('s')
 plt.grid()

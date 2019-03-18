@@ -112,6 +112,20 @@ J_ = J.subs(subs_dict)
 grav_ = grav.subs(subs_dict)
 m_ = m.subs(subs_dict)
 
+A_ = np.array([[0,0,1,0],
+               [0,0,0,1],
+               [0,0,0,0],
+               [0,0,0,0]])
+B_ = np.array([[0,0],[0,0],[1,0],[0,1]])
+
+Q = np.eye(4)
+R = np.eye(2)
+
+K, X, eigvals = lqr(A_, B_, Q, R)
+
+
+
+
 # make the plot
 dt = .005
 
@@ -133,23 +147,25 @@ xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
 #################
 # Straight Line #
 #################
-flight = 'STRAIGHT_LINE'
-tfinal = 3
-ic = np.r_[0, .5, 0, 0, 0, 0]
-X_final = np.r_[2,0,0,0,0]
-times = np.arange(0, tfinal, dt)
-xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
-                   np.linspace(ic[1], X_final[1], len(times)),
-                   np.zeros_like(times),
-                   1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
-                   1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
-                   np.zeros_like(times)]).T
-danger_x = .8
-danger_z = .3
-csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=2)
+# flight = 'STRAIGHT_LINE'
+# tfinal = 3
+# ic = np.r_[0, .5, 0, 0, 0, 0]
+# X_final = np.r_[2,0,0,0,0]
+# times = np.arange(0, tfinal, dt)
+# xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
+#                    np.linspace(ic[1], X_final[1], len(times)),
+#                    np.zeros_like(times),
+#                    1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
+#                    1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
+#                    np.zeros_like(times)]).T
+# danger_x = .8
+# danger_z = .3
+# csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=2)
+
+
 
 # controller
-def ctrl_fn(X, Xdes):
+def hierarchical_ctrl(X, Xdes, xdd_ref=None, zdd_ref=None):
     """
     State dependent control
     :param X: 6 vec current states [x z theta xd zd thetad]
@@ -160,14 +176,16 @@ def ctrl_fn(X, Xdes):
     # x controller
     wn_x = 1
     xi_x = 1 # critically damped
-    xdd_ref = 0 # for now, no feedforward terms!
+    if xdd_ref is None:
+        xdd_ref = 0
     v_theta = xdd_ref - 2*xi_x*wn_x*(X[3]-Xdes[3]) - wn_x**2*(X[0]-Xdes[0])
     th_ref = -1/grav_*v_theta
 
     # z controller
     wn_z = 1
     xi_z = 1
-    zdd_ref = 0
+    if zdd_ref is None:
+        zdd_ref = 0
     v_z = zdd_ref - 2*xi_z*wn_z*(X[4]-Xdes[4]) - wn_z**2*(X[1]-Xdes[1])
     dF = 1/m_*v_z
 
@@ -207,8 +225,16 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     state = ic
     for i in range(len(times)):
         # calculate control
-        u = ctrl_fn(state, Xdes=xtraj[i,:])
-        u = calc_csf(state, u, csf_fn)
+        e = state - xtraj[i,:]
+        ministate = np.r_[e[0:2], e[3:5]]
+        udes = -K@ministate
+        xdd_des = udes[0,0]
+        zdd_des = udes[0,1]
+
+        # utilde = calc_csf(state, np.array([xdd_des, zdd_des]), csf_fn)
+        # xdd_des = utilde[0]
+        # zdd_des = utilde[1]
+        u = ctrl_fn(state, Xdes=xtraj[i,:], xdd_ref=xdd_des, zdd_ref=zdd_des)
 
         # don't bother with clipping the input for now.
 
@@ -220,7 +246,7 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     return xlist, ulist, times
 
 
-xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=tfinal, xtraj=xtraj)
+xlist, ulist, times = simulate(ic, ctrl_fn=hierarchical_ctrl, dt=dt, tfinal=tfinal, xtraj=xtraj)
 
 
 fig = plt.figure()
