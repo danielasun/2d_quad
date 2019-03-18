@@ -182,15 +182,30 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     return xlist, ulist, times
 
 # make the plot
-ic = np.r_[1, 1, -.5, 0, 0, 0]
+
 dt = .01
-tfinal = 10
+
+# circle_flight:
+# ic = np.r_[1, 1, -.5, 0, 0, 0]
+# tfinal = 10
+# times = np.arange(0, tfinal, dt)
+# xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
+#                    np.sin(2*np.pi*times/tfinal),
+#                    np.zeros_like(times),
+#                    -np.sin(2*np.pi*times/tfinal),
+#                    np.cos(2 * np.pi * times / tfinal),
+#                    np.zeros_like(times)]).T
+
+# going up flight:
+tfinal = 5
+ic = np.r_[0, 0, 0, 0, 0, 0]
+X_final = np.r_[1,1,0,0,0,0]
 times = np.arange(0, tfinal, dt)
-xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
-                   np.sin(2*np.pi*times/tfinal),
+xtraj = np.vstack([np.linspace(0,X_final[0],len(times)),
                    np.zeros_like(times),
-                   -np.sin(2*np.pi*times/tfinal),
-                   np.cos(2 * np.pi * times / tfinal),
+                   np.zeros_like(times),
+                   1/dt*np.diff(np.linspace(0, X_final[0], len(times)), prepend=0),
+                   np.zeros_like(times),
                    np.zeros_like(times)]).T
 
 
