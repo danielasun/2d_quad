@@ -19,6 +19,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
+from csf import calc_csf
+from safety_fn_position import gen_safety_coeffs_fn
+
 def lqr(A, B, Q, R):
     """
         Solve the continuous time lqr controller.
@@ -109,6 +112,41 @@ J_ = J.subs(subs_dict)
 grav_ = grav.subs(subs_dict)
 m_ = m.subs(subs_dict)
 
+# make the plot
+dt = .005
+
+#################
+# circle_flight #
+#################
+flight = 'CIRCLE_FLIGHT'
+ic = np.r_[0, 0, -.5, 0, 0, 0]
+tfinal = 10
+times = np.arange(0, tfinal, dt)
+xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
+                   np.sin(2*np.pi*times/tfinal),
+                   np.zeros_like(times),
+                   -np.sin(2*np.pi*times/tfinal),
+                   np.cos(2 * np.pi * times / tfinal),
+                   np.zeros_like(times)]).T
+
+
+#################
+# Straight Line #
+#################
+flight = 'STRAIGHT_LINE'
+tfinal = 3
+ic = np.r_[0, .5, 0, 0, 0, 0]
+X_final = np.r_[2,0,0,0,0]
+times = np.arange(0, tfinal, dt)
+xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
+                   np.linspace(ic[1], X_final[1], len(times)),
+                   np.zeros_like(times),
+                   1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
+                   1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
+                   np.zeros_like(times)]).T
+danger_x = .8
+danger_z = .3
+csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=2)
 
 # controller
 def ctrl_fn(X, Xdes):
@@ -146,7 +184,6 @@ def ctrl_fn(X, Xdes):
 
     return np.array([T, M]).astype(float)
 
-
 # simulate
 def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     """
@@ -171,6 +208,7 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     for i in range(len(times)):
         # calculate control
         u = ctrl_fn(state, Xdes=xtraj[i,:])
+        u = calc_csf(state, u, csf_fn)
 
         # don't bother with clipping the input for now.
 
@@ -180,33 +218,6 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
         state = (change_eqs(state, u.T)[:, 0] * dt + state).astype(float)
 
     return xlist, ulist, times
-
-# make the plot
-
-dt = .01
-
-# circle_flight:
-# ic = np.r_[1, 1, -.5, 0, 0, 0]
-# tfinal = 10
-# times = np.arange(0, tfinal, dt)
-# xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
-#                    np.sin(2*np.pi*times/tfinal),
-#                    np.zeros_like(times),
-#                    -np.sin(2*np.pi*times/tfinal),
-#                    np.cos(2 * np.pi * times / tfinal),
-#                    np.zeros_like(times)]).T
-
-# going up flight:
-tfinal = 3
-ic = np.r_[0, 0, 0, 0, 0, 0]
-X_final = np.r_[1,1,0,0,0,0]
-times = np.arange(0, tfinal, dt)
-xtraj = np.vstack([np.linspace(0,X_final[0],len(times)),
-                   np.zeros_like(times),
-                   np.zeros_like(times),
-                   1/dt*np.diff(np.linspace(0, X_final[0], len(times)), prepend=0),
-                   np.zeros_like(times),
-                   np.zeros_like(times)]).T
 
 
 xlist, ulist, times = simulate(ic, ctrl_fn=ctrl_fn, dt=dt, tfinal=tfinal, xtraj=xtraj)
@@ -219,6 +230,15 @@ lim = max([xlim, ylim])
 lim = lim*1.1 # make 10% larger so the scaling is nice
 ax = fig.add_subplot(111, autoscale_on=False, xlim=(-lim, lim), ylim=(-lim, lim))
 ax.grid()
+
+if flight == 'STRAIGHT_LINE':
+    # plot a circle centered at (1,.5)
+    phi = np.linspace(0,2*np.pi, 100)
+    circle_radius = .5
+    circle_x = circle_radius*np.cos(phi) + danger_x
+    circle_z = circle_radius*np.sin(phi) + danger_z
+    ax.plot(circle_x, circle_z)
+
 
 line, = ax.plot([], [], 'o-', lw=10)
 time_template = 'time = %.3fs'

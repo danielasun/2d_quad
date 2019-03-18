@@ -17,7 +17,7 @@ for k, ending in zip([kx, kz, kt, kxd, kzd, ktd, ], ['x', 'z', 't', '\dot{x}', '
     symbol_names[k] = "k_{" + ending + "}"
 
 # Define dynamical system
-subs_dict = {ox: 1e-6, oz: 1e-6, ot: 1e-6, r: .127, m: .1, grav: 9.8, x0:1, z0:.5}
+subs_dict = {ox: 1e-6, oz: 1e-6, ot: 1e-6, r: .127, m: .1, grav: 9.8, x0:1, z0:.2}
 
 # vectors of variables
 q = sp.Matrix([x, z, th])
@@ -41,31 +41,37 @@ g = sp.Matrix([[0, 0], [0, 0], [0, 0], Dinv @ B])
 
 def H(arg):
     return 1 + 1/(1+sp.exp(-arg))
-Lf2hx = sp.Matrix([2*xd, 2*zd, 0, 2*(x-x0), 2*(z-z0), 0]).T@f
-hr = H(Lf2hx[0,0])*((x-x0)**2 + (z-z0)**2) # safety function that can only tell the thrusters to do more.
-Lfhx = sp.Matrix([hr]).jacobian(X)@f
-Lghx = sp.Matrix([hr]).jacobian(X)@g
-def a_h(h):
-    return .1*h
-print("h_r(x) = {}".format(hr))
 
-expr = Lfhx[0,0] + Lghx[0,0] + .1*hr
-expr.subs({x0:1, z0:1})
+def gen_safety_coeffs_fn(x0, z0, alpha):
 
-Lfhx = Lfhx.subs(subs_dict)[0,0]
-Lfhx = sp.lambdify(X, Lfhx)
-Lghx = Lghx.subs(subs_dict)
-Lghx = sp.lambdify(X, Lghx)
-hr = sp.lambdify(X, hr.subs(subs_dict))
+    Lf2hx = sp.Matrix([2*xd, 2*zd, 0, 2*(x-x0), 2*(z-z0), 0]).T@f
+    hr = H(Lf2hx[0,0])*((x-x0)**2 + (z-z0)**2) # safety function that can only tell the thrusters to do more.
+    Lfhx = sp.Matrix([hr]).jacobian(X)@f
+    Lghx = sp.Matrix([hr]).jacobian(X)@g
 
-def calc_safety_coeffs(state):
-    """
-    calculate coefficients for CSF
+    expr = Lfhx[0,0] + Lghx[0,0] + .1*hr
+    expr.subs({x0:1, z0:1})
 
-    Right now, alpha=.1
-    :param state: 6 vector of [x z th xd zd thd].T
-    :return: Lfhx, Lghx (2 vec) .1*hr
-    """
+    Lfhx = Lfhx.subs(subs_dict)[0,0]
+    Lfhx = sp.lambdify(X, Lfhx)
+    Lghx = Lghx.subs(subs_dict)
+    Lghx = sp.lambdify(X, Lghx)
+    hr = sp.lambdify(X, hr.subs(subs_dict))
 
-    return Lfhx(*state), Lghx(*state), .1*hr(*state)
+    def calc_safety_coeffs(state):
+        """
+        calculate coefficients for CSF
 
+        Right now, alpha=.1
+        :param state: 6 vector of [x z th xd zd thd].T
+        :return: Lfhx, Lghx (2 vec) .1*hr
+        """
+
+        print("hr = {}".format(hr(*state)))
+        return Lfhx(*state), Lghx(*state), alpha*hr(*state)
+    return calc_safety_coeffs
+
+if __name__ == '__main__':
+    calc_safety_coeffs = gen_safety_coeffs_fn(x0=1, z0=.5, alpha=1)
+    state = np.array([.9, .4, .0, .1, -.2, .1])
+    print(calc_safety_coeffs(state))
