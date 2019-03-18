@@ -197,7 +197,7 @@ dt = .01
 #                    np.zeros_like(times)]).T
 
 # going up flight:
-tfinal = 5
+tfinal = 3
 ic = np.r_[0, 0, 0, 0, 0, 0]
 X_final = np.r_[1,1,0,0,0,0]
 times = np.arange(0, tfinal, dt)
