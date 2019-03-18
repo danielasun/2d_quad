@@ -119,7 +119,7 @@ A_ = np.array([[0,0,1,0],
 B_ = np.array([[0,0],[0,0],[1,0],[0,1]])
 
 Q = np.eye(4)
-R = np.eye(2)
+R = np.eye(2)*100
 
 K, X, eigvals = lqr(A_, B_, Q, R)
 
@@ -142,14 +142,16 @@ xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
                    -np.sin(2*np.pi*times/tfinal),
                    np.cos(2 * np.pi * times / tfinal),
                    np.zeros_like(times)]).T
-
+danger_x = -1.5
+danger_z = 0
+csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
 
 #################
 # Straight Line #
 #################
 # flight = 'STRAIGHT_LINE'
-# tfinal = 3
-# ic = np.r_[0, .5, 0, 0, 0, 0]
+# tfinal = 5
+# ic = np.r_[0, .1, 0, 0, 0, 0]
 # X_final = np.r_[2,0,0,0,0]
 # times = np.arange(0, tfinal, dt)
 # xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
@@ -159,8 +161,8 @@ xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
 #                    1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
 #                    np.zeros_like(times)]).T
 # danger_x = .8
-# danger_z = .3
-# csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=2)
+# danger_z = 0
+# csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
 
 
 
@@ -230,14 +232,17 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
         udes = -K@ministate
         xdd_des = udes[0,0]
         zdd_des = udes[0,1]
+        # minimally invasive CSF
+        utilde, success = calc_csf(state, np.array([xdd_des, zdd_des]), csf_fn)
+        if not success:
+            break
+        xdd_des = utilde[0]
+        zdd_des = utilde[1]
 
-        # utilde = calc_csf(state, np.array([xdd_des, zdd_des]), csf_fn)
-        # xdd_des = utilde[0]
-        # zdd_des = utilde[1]
+        # figure out the actual controls
         u = ctrl_fn(state, Xdes=xtraj[i,:], xdd_ref=xdd_des, zdd_ref=zdd_des)
 
         # don't bother with clipping the input for now.
-
         xlist[i, :] = state
         ulist[i, :] = u
         # print(u, state)
@@ -257,13 +262,13 @@ lim = lim*1.1 # make 10% larger so the scaling is nice
 ax = fig.add_subplot(111, autoscale_on=False, xlim=(-lim, lim), ylim=(-lim, lim))
 ax.grid()
 
-if flight == 'STRAIGHT_LINE':
-    # plot a circle centered at (1,.5)
-    phi = np.linspace(0,2*np.pi, 100)
-    circle_radius = .5
-    circle_x = circle_radius*np.cos(phi) + danger_x
-    circle_z = circle_radius*np.sin(phi) + danger_z
-    ax.plot(circle_x, circle_z)
+# if flight == 'STRAIGHT_LINE':
+#     # plot a circle centered at (1,.5)
+phi = np.linspace(0,2*np.pi, 100)
+circle_radius = .25
+circle_x = circle_radius*np.cos(phi) + danger_x
+circle_z = circle_radius*np.sin(phi) + danger_z
+ax.plot(circle_x, circle_z)
 
 
 line, = ax.plot([], [], 'o-', lw=10)

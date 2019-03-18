@@ -39,17 +39,44 @@ qdd = -Dinv @ H + Dinv @ B @ u
 f = sp.Matrix([qd, -Dinv @ H]).subs(subs_dict)
 g = sp.Matrix([[0, 0], [0, 0], [0, 0], Dinv @ B])
 
+# smaller, controllable system
+A_ = np.array([[0,0,1,0],
+               [0,0,0,1],
+               [0,0,0,0],
+               [0,0,0,0]])
+B_ = np.array([[0,0],[0,0],[1,0],[0,1]])
+miniX = sp.Matrix([x, z, xd, zd])
+xdd_des, zdd_des = sp.symbols('xdd_des, zdd_des')
+ftilde = A_@miniX
+gtilde = B_
+
 def H(arg):
-    return 1 + 1/(1+sp.exp(-arg))
+    """
+    Scaling function that satisfies
+
+    Hmin <= H(arg) <= Hmax for all arg in R
+    :param arg:
+    :return: scaled value
+    """
+    return .05 + 1/(1+sp.exp(-arg))
 
 def gen_safety_coeffs_fn(x0, z0, alpha):
+    """
+    Operates on the smaller 4x4 double integrator system with just x and z.
 
-    Lf2hx = sp.Matrix([2*xd, 2*zd, 0, 2*(x-x0), 2*(z-z0), 0]).T@f
-    hr = H(Lf2hx[0,0])*((x-x0)**2 + (z-z0)**2) # safety function that can only tell the thrusters to do more.
-    Lfhx = sp.Matrix([hr]).jacobian(X)@f
-    Lghx = sp.Matrix([hr]).jacobian(X)@g
+    h(x) = (x-x0)^2 + (z-z0)^2
+    :param x0:
+    :param z0:
+    :param alpha:
+    :return:
+    """
+    miniX = sp.Matrix([x, z, xd, zd])
+    Lf1hx = sp.Matrix([2*(x-x0), 2*(z-z0), 0, 0]).T@ftilde
+    hr = H(Lf1hx[0,0])*((x-x0)**2 + (z-z0)**2) # safety function that can only tell the thrusters to do more.
+    Lfhx = sp.Matrix([hr]).jacobian(miniX)@ftilde
+    Lghx = sp.Matrix([hr]).jacobian(miniX)@gtilde
 
-    expr = Lfhx[0,0] + Lghx[0,0] + .1*hr
+    expr = Lfhx[0,0] + Lghx[0,0] + alpha*hr
     expr.subs({x0:1, z0:1})
 
     Lfhx = Lfhx.subs(subs_dict)[0,0]

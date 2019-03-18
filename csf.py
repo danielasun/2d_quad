@@ -4,10 +4,7 @@ import numpy as np
 
 
 
-m = grb.Model('qp')
-m.Params.LogToConsole=0
-u1 = m.addVar(lb=-GRB.INFINITY) # Thrust
-u2 = m.addVar(lb=-GRB.INFINITY) # Force
+
 
 def calc_csf(state, udes, calc_safety_coeffs):
     """
@@ -17,20 +14,32 @@ def calc_csf(state, udes, calc_safety_coeffs):
     :param calc_safety_coeffs: a function to calculate the control safety fn coefficients
     :return: u, 2x1 array for Thrust and Moment
     """
+    m = grb.Model('qp')
+    m.Params.LogToConsole=0
+    u1 = m.addVar(lb=-GRB.INFINITY)  # Thrust
+    u2 = m.addVar(lb=-GRB.INFINITY)  # Force
+
     Lfhx, Lghx, ah = calc_safety_coeffs(state)
     obj = (u1-udes[0])*(u1-udes[0]) + (u2-udes[1])*(u2-udes[1])
     m.setObjective(obj)
 
-    m.addConstr(Lfhx + Lghx[0,0]*u1 + Lghx[0,1]*u2 +  ah >= 0, 'c0')
+    m.addConstr(Lfhx + Lghx[0,0]*u1 + Lghx[0,1]*u2 + ah >= 0, 'c0')
+
+    acc_max = 100
+    m.addConstr(u1 <= acc_max, 'c1')
+    m.addConstr(u1 >= -acc_max, 'c2')
+
+    m.addConstr(u2 <= acc_max, 'c3')
+    m.addConstr(u2>= -acc_max, 'c4')
 
     try:
         m.optimize()
         print(m.x, udes)
     except:
         print("SAFETY CONSTRAINTS VIOLATED")
-        return udes
+        return udes, False
 
-    return np.array(m.x)
+    return np.array(m.x), True
 
 
 
