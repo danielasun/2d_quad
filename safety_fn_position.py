@@ -1,6 +1,8 @@
 import sympy as sp
 import numpy as np
 
+from latex_util import *
+
 # write down dynamics
 x, z, th, xd, zd, thd = sp.symbols('x z th xd zd thd')
 x0, z0 = sp.symbols('x0, z0')
@@ -58,7 +60,7 @@ def H(arg):
     :param arg:
     :return: scaled value
     """
-    return .05 + 1/(1+sp.exp(-arg))
+    return .005 + 1/(1+sp.exp(-arg))
 
 def gen_safety_coeffs_fn(x0, z0, alpha):
     """

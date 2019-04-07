@@ -64,6 +64,21 @@ def lpr(expr, prec, **kwargs):
     print(sp.latex(sp.simplify(round_expr(expr, prec)), symbol_names=symbol_names, **kwargs))
 
 
+##################
+# MODE SELECTION #
+##################
+
+mode_string = \
+"""
+'Use csf? (Y/y) for yes, anything else for no'
+"""
+mode_string = input(mode_string).lower()
+if mode_string == 'y':
+    USE_CSF = True
+else:
+    USE_CSF = False
+
+
 # write down dynamics
 ox, oz, ot, m, r, F1, F2, grav, v1, v2 = symbols('ox, oz, ot, m, r, F1, F2, grav, v1, v2')
 kx, kz, kt, kxd, kzd, ktd = symbols('kx, kz, kt, kxd, kzd, ktd')
@@ -149,20 +164,20 @@ csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
 #################
 # Straight Line #
 #################
-# flight = 'STRAIGHT_LINE'
-# tfinal = 5
-# ic = np.r_[0, .1, 0, 0, 0, 0]
-# X_final = np.r_[2,0,0,0,0]
-# times = np.arange(0, tfinal, dt)
-# xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
-#                    np.linspace(ic[1], X_final[1], len(times)),
-#                    np.zeros_like(times),
-#                    1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
-#                    1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
-#                    np.zeros_like(times)]).T
-# danger_x = .8
-# danger_z = 0
-# csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
+flight = 'STRAIGHT_LINE'
+tfinal = 6
+ic = np.r_[0, .1, 0, 0, 0, 0]
+X_final = np.r_[2,0,0,0,0]
+times = np.arange(0, tfinal, dt)
+xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
+                   np.linspace(ic[1], X_final[1], len(times)),
+                   np.zeros_like(times),
+                   1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
+                   1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
+                   np.zeros_like(times)]).T
+danger_x = .8
+danger_z = 0
+csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
 
 
 
@@ -205,7 +220,7 @@ def hierarchical_ctrl(X, Xdes, xdd_ref=None, zdd_ref=None):
     return np.array([T, M]).astype(float)
 
 # simulate
-def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
+def simulate(ic, ctrl_fn, dt, tfinal, xtraj, use_csf=True):
     """
         simulates quadrotor output
         :param ic: initial condition, 6x1 vector
@@ -232,12 +247,14 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
         udes = -K@ministate
         xdd_des = udes[0,0]
         zdd_des = udes[0,1]
+
         # minimally invasive CSF
-        utilde, success = calc_csf(state, np.array([xdd_des, zdd_des]), csf_fn)
-        if not success:
-            break
-        xdd_des = utilde[0]
-        zdd_des = utilde[1]
+        if use_csf:
+            utilde, success = calc_csf(state, np.array([xdd_des, zdd_des]), csf_fn)
+            if not success:
+                break
+            xdd_des = utilde[0]
+            zdd_des = utilde[1]
 
         # figure out the actual controls
         u = ctrl_fn(state, Xdes=xtraj[i,:], xdd_ref=xdd_des, zdd_ref=zdd_des)
@@ -251,7 +268,7 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj):
     return xlist, ulist, times
 
 
-xlist, ulist, times = simulate(ic, ctrl_fn=hierarchical_ctrl, dt=dt, tfinal=tfinal, xtraj=xtraj)
+xlist, ulist, times = simulate(ic, ctrl_fn=hierarchical_ctrl, dt=dt, tfinal=tfinal, xtraj=xtraj, use_csf=USE_CSF)
 
 
 fig = plt.figure()
@@ -265,7 +282,7 @@ ax.grid()
 # if flight == 'STRAIGHT_LINE':
 #     # plot a circle centered at (1,.5)
 phi = np.linspace(0,2*np.pi, 100)
-circle_radius = .25
+circle_radius = .2
 circle_x = circle_radius*np.cos(phi) + danger_x
 circle_z = circle_radius*np.sin(phi) + danger_z
 ax.plot(circle_x, circle_z)
@@ -304,7 +321,8 @@ def animate(i):
 ani = animation.FuncAnimation(fig, animate, np.arange(len(times)),
                               interval=1, blit=True, init_func=init)
 
-# ani.save('quadrotor.mp4', fps=15)
+# ani.save('animation.gif', writer='imagemagick', fps=30)
+# ani.save('no_csf_traj.mp4', writer="ffmpeg", fps=60)
 
 #### plotting graphs ####
 
@@ -324,18 +342,19 @@ for i, l in zip(range(3,6), ['xdot','zdot','thetadot']):
     plt.plot(times, xlist[:,i], label=l)
 plt.xlabel('time')
 legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
-plt.subplot(414)
-for i, l in zip(range(2), ['F1','F2']):
+plt.subplot(414, ylim=[-110,110])
+for i, l in zip(range(2), ['F','M']):
     plt.plot(times, ulist[:,i], label=l)
 legend = plt.legend(loc='upper right', shadow=True, fontsize='small')
 
 show_traj = True
-show_traj = False
+# show_traj = False
 if show_traj:
     plt.figure()
     plt.plot(xlist[:,0], xlist[:,1], 'b.')
     plt.xlabel('x')
     plt.ylabel('z')
+    plt.plot(circle_x, circle_z)
 
 plt.show()
 
