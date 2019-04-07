@@ -67,8 +67,8 @@ def gen_safety_coeffs_fn(x0, z0, alpha):
     Operates on the smaller 4x4 double integrator system with just x and z.
 
     h(x) = (x-x0)^2 + (z-z0)^2
-    :param x0:
-    :param z0:
+    :param x0: x position of the center of the unsafe location
+    :param z0: z position of the center of the unsafe location
     :param alpha:
     :return:
     """

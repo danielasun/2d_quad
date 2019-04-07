@@ -21,6 +21,7 @@ import matplotlib.animation as animation
 
 from csf import calc_csf
 from safety_fn_position import gen_safety_coeffs_fn
+from latex_util import round_expr, lp, lpr
 
 def lqr(A, B, Q, R):
     """
@@ -50,20 +51,6 @@ def lqr(A, B, Q, R):
     return K, X, eigVals
 
 
-def round_expr(expr, num_digits):
-    return expr.xreplace({n: round(n, num_digits) for n in expr.atoms(sp.Number)})
-
-
-def lp(expr, prec=None, **kwargs):
-    if prec is None:
-        print(sp.latex(sp.simplify(expr), symbol_names=symbol_names, **kwargs))
-
-
-def lpr(expr, prec, **kwargs):
-    # latex print with rounding
-    print(sp.latex(sp.simplify(round_expr(expr, prec)), symbol_names=symbol_names, **kwargs))
-
-
 ##################
 # MODE SELECTION #
 ##################
@@ -72,11 +59,35 @@ mode_string = \
 """
 'Use csf? (Y/y) for yes, anything else for no'
 """
-mode_string = input(mode_string).lower()
-if mode_string == 'y':
+choice_string = input(mode_string).lower()
+if choice_string== 'y':
     USE_CSF = True
 else:
     USE_CSF = False
+
+mode_string = \
+"""
+Save animation? (Y/y) for yes, anything else for no
+"""
+choice_string = input(mode_string).lower()
+if choice_string == 'y':
+    SAVE_ANIMATION = True
+else:
+    SAVE_ANIMATION = False
+
+mode_string = \
+"""
+Choose flight plan: (C/c) for circle, (S/s) for straight flight
+"""
+choice_string = input(mode_string).lower()
+if choice_string == 'c':
+    FLIGHT_PLAN = "CIRCLE"
+elif choice_string == 's':
+    FLIGHT_PLAN = "STRAIGHT"
+else:
+    print("Invalid choice, exiting.")
+    exit(1)
+
 
 
 # write down dynamics
@@ -147,69 +158,75 @@ dt = .005
 #################
 # circle_flight #
 #################
-flight = 'CIRCLE_FLIGHT'
-ic = np.r_[0, 0, -.5, 0, 0, 0]
-tfinal = 10
-times = np.arange(0, tfinal, dt)
-xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
-                   np.sin(2*np.pi*times/tfinal),
-                   np.zeros_like(times),
-                   -np.sin(2*np.pi*times/tfinal),
-                   np.cos(2 * np.pi * times / tfinal),
-                   np.zeros_like(times)]).T
-danger_x = -1.5
-danger_z = 0
-csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
+if FLIGHT_PLAN == "CIRCLE":
+    ic = np.r_[0, 0, -.5, 0, 0, 0]
+    tfinal = 10
+    times = np.arange(0, tfinal, dt)
+    xtraj = np.vstack([np.cos(2*np.pi*times/tfinal),
+                       np.sin(2*np.pi*times/tfinal),
+                       np.zeros_like(times),
+                       -np.sin(2*np.pi*times/tfinal),
+                       np.cos(2 * np.pi * times / tfinal),
+                       np.zeros_like(times)]).T
+    danger_x = -1.5
+    danger_z = 0
+    csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=2)
 
 #################
 # Straight Line #
 #################
-flight = 'STRAIGHT_LINE'
-tfinal = 6
-ic = np.r_[0, .1, 0, 0, 0, 0]
-X_final = np.r_[2,0,0,0,0]
-times = np.arange(0, tfinal, dt)
-xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
-                   np.linspace(ic[1], X_final[1], len(times)),
-                   np.zeros_like(times),
-                   1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
-                   1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
-                   np.zeros_like(times)]).T
-danger_x = .8
-danger_z = 0
-csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
+if FLIGHT_PLAN == 'STRAIGHT':
+    tfinal = 6
+    ic = np.r_[0, .1, 0, 0, 0, 0]
+    X_final = np.r_[2,0,0,0,0]
+    times = np.arange(0, tfinal, dt)
+    xtraj = np.vstack([np.linspace(ic[0], X_final[0],len(times)),
+                       np.linspace(ic[1], X_final[1], len(times)),
+                       np.zeros_like(times),
+                       1/dt*np.diff(np.linspace(ic[0], X_final[0], len(times)), prepend=0),
+                       1/dt*np.diff(np.linspace(ic[1], X_final[1], len(times)), prepend=0),
+                       np.zeros_like(times)]).T
+    danger_x = .8
+    danger_z = 0
+    csf_fn = gen_safety_coeffs_fn(x0=danger_x, z0=danger_z, alpha=.5)
 
 
 
 # controller
 def hierarchical_ctrl(X, Xdes, xdd_ref=None, zdd_ref=None):
     """
-    State dependent control
+    State dependent control that controls the quadcopter in x and z by choosing thrust to cancel out gravity and rapidly
+    servoing the angle to achieve the desired acceleration in x.
+
     :param X: 6 vec current states [x z theta xd zd thetad]
     :param Xdes: # 6 vec desired state value for X
     :return: 2x1 control output vector [T,M]
     """
+
+    # Control parameters:
+    wn_x = 1
+    xi_x = 1
+
+    wn_z = 1
+    xi_z = 1
+
+    wn_theta = 20 # higher than wn_x
+    xi_theta = 1
+
     # x-z regulation:
     # x controller
-    wn_x = 1
-    xi_x = 1 # critically damped
     if xdd_ref is None:
         xdd_ref = 0
     v_theta = xdd_ref - 2*xi_x*wn_x*(X[3]-Xdes[3]) - wn_x**2*(X[0]-Xdes[0])
     th_ref = -1/grav_*v_theta
 
     # z controller
-    wn_z = 1
-    xi_z = 1
     if zdd_ref is None:
         zdd_ref = 0
     v_z = zdd_ref - 2*xi_z*wn_z*(X[4]-Xdes[4]) - wn_z**2*(X[1]-Xdes[1])
     dF = 1/m_*v_z
 
-
     # angle controller (slave to x)
-    wn_theta = 20
-    xi_theta = 1
     th = X[2]
     thd = X[5]
     thdd = 0 # for now, no feedforward terms!
@@ -270,7 +287,6 @@ def simulate(ic, ctrl_fn, dt, tfinal, xtraj, use_csf=True):
 
 xlist, ulist, times = simulate(ic, ctrl_fn=hierarchical_ctrl, dt=dt, tfinal=tfinal, xtraj=xtraj, use_csf=USE_CSF)
 
-
 fig = plt.figure()
 xlim = np.max([abs(np.min(xlist[:,0])), np.max(xlist[:,0])])
 ylim = np.max([abs(np.min(xlist[:,1])), np.max(xlist[:,1])])
@@ -318,11 +334,12 @@ def animate(i):
     time_text.set_text(time_template % (i*dt))
     return line, time_text
 
-ani = animation.FuncAnimation(fig, animate, np.arange(len(times)),
-                              interval=1, blit=True, init_func=init)
+ani = animation.FuncAnimation(fig, animate, np.arange(len(times)), interval=1, blit=True, init_func=init)
 
+if SAVE_ANIMATION:
+    print("Writing animation...")
 # ani.save('animation.gif', writer='imagemagick', fps=30)
-# ani.save('no_csf_traj.mp4', writer="ffmpeg", fps=60)
+    ani.save('no_csf_traj.mp4', writer="ffmpeg", fps=60)
 
 #### plotting graphs ####
 
@@ -357,30 +374,3 @@ if show_traj:
     plt.plot(circle_x, circle_z)
 
 plt.show()
-
-
-
-
-###### not using right now
-# # augmented system: X_d = f_(x,u) + g_@ud
-# show stabilization to the origin
-
-# show general trajectory tracking for the controller.
-
-# def kelly_stabilizer(z, p):
-#     """
-#     Nonlinear control law that will stabiize the quadrotor.
-#     :param z: 6 vector for the state
-#     :param p:
-#     :return:
-#     """
-#
-#     wfast = 1
-#     wslow_x = .1
-#     wslow_z = .1
-#     xi = .1
-#
-#     ddx =
-
-# formulate barrier function
-# formulate
